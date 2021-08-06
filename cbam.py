@@ -1,22 +1,54 @@
 #TODO - adapt
+class SEBlock(L.Layer):
+    def __init__(self, name: str, reduction_ratio: int = 16, *args, **kwargs):
+        """
+        Parameters
+        ----------
+        name: str
+            string name of layer in model
+        reduction_ratio: int
+            ration of the input channels to the middle channels in the Bottleneck block
+        """
+        super(SEBlock, self).__init__(name=name, *args, **kwargs)
+        self.reduction_ratio = reduction_ratio
 
-class ExpandAs(Layer):
-    def __init__(self, name, n_repeats, axis, **kwargs):
-        super(ExpandAs, self).__init__(name=name, **kwargs)
-        self.n_repeats = n_repeats
-        self.axis = axis
-        
     def build(self, input_shape):
-        self.expander = layers.Lambda(
-            lambda x, reps:
-                K.repeat_elements(x, reps, axis=self.axis),
-                arguments={'reps':self.n_repeats},
-                name=self.name + '_Lambda'
+        n_ch_in = input_shape[-1]
+        self.middle_layer_size = int(n_ch_in / float(self.reduction_ratio))
+        self.bottleneck = Bottleneck(name=self.name, n_ch_mid=self.middle_layer_size)
+        self.avg_pool = L.GlobalAveragePooling2D()
+        self.sigmoid = L.Activation("sigmoid")
+        self.reshape = L.Reshape((1, 1, n_ch_in))
+        self.expand_1 = ExpandAs(
+            name=f"{self.name}_rep_dim1", n_repeats=input_shape[1], axis=1
         )
-    def call(self, inputs):
-        return self.expander(inputs)
+        self.expand_2 = ExpandAs(
+            name=f"{self.name}_rep_dim2", n_repeats=input_shape[2], axis=2
+        )
+        self.multiply = L.Multiply()
 
-class Bottleneck(Layer):
+    def call(self, inputs):
+        # print(f'in_shape={in_shape}')
+        # Compute the global average- and max-pooling versions of a given set
+        # of feature maps which will be fed into the Bottleneck block
+        avg_pool = self.avg_pool(inputs)
+        avg_pool_btlnk = self.bottleneck(avg_pool)
+
+        # TODO: think about adding bias (minor point)
+        sig_pool = self.sigmoid(avg_pool_btlnk)
+        sig_pool = self.reshape(sig_pool)
+        # print(f'sig_pool_shape={sig_pool.shape}')
+        # The computed channel weights should be repeated using the 'expand_as' function
+        # to have a tensor of the same shape as the input tensor
+        # TODO: broadcast this to save VRAM
+        out1 = self.expand_1(sig_pool)
+        # print(f'out1_shape={out1.shape}')
+        out2 = self.expand_2(out1)
+        # print(f'out2_shape={out2.shape}')
+        # ch attn map * input
+        return self.multiply([inputs, out2])
+
+class FFBottleneck(Layer):
     def __init__(
         self,
         name:str,
