@@ -168,21 +168,21 @@ class DynamicConv1D(L.Layer):
         split_filters = tf.unstack(agg_wgt, bs_in, axis=0)
         output_list = []
         for batch_ix, (spl_in, spl_filt) in enumerate(zip(split_inputs, split_filters)):
-            weights = [spl_filt]
             if self.use_bias:
-                spl_bias = split_bias[batch_ix]
-                weights.append(tf.reshape(spl_bias, (-1,)))
+                spl_bias = tf.reshape(split_bias[batch_ix], (-1,))
             # construct a separate conv kernel for each batch element
             o = tf.nn.conv1d(
                 input=spl_in,
-                filters=weights[0],
+                filters=spl_filt,
                 stride=self.strides,
                 padding=padding,
                 data_format='NWC',
                 dilations=self.dilation_rate,
                 name=None
             )
-            output_list.append(o + spl_bias)
+            if self.use_bias:
+                o = o + spl_bias
+            output_list.append(o)
         out = tf.concat(output_list, axis=0)
         return out
     
