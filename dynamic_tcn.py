@@ -87,6 +87,7 @@ class ResidualBlock(L.Layer):
 
     def build(self, input_shape):
         
+        # support regular and dynamic convolution
         extra_kwargs = {}
         if self.use_dynamic_conv:
             conv_cls = DynamicConv1D
