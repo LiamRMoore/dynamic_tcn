@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow.keras.layers as L
 import tensorflow.keras.backend as K
 
+
 class Bottleneck(L.Layer):
     def __init__(self, name: str, n_ch_mid: int, *args, **kwargs):
         """

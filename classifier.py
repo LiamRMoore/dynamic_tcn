@@ -11,7 +11,7 @@ def dynamic_tcn_classifier(
     input_shape: Tuple[int],
     batch_size: int,
     n_filters: int = 24,
-    layer_max_dilation_factors: List[int] = [8],
+    max_dilation_factor: int = 8,
     n_output_classes: int = 1,
     kernel_size: int = 3,
     nb_stacks: int = 4,
@@ -38,38 +38,28 @@ def dynamic_tcn_classifier(
     # input of first layer is time series of label probabilities
     x = input_
 
-    # stack TCN blocks
-    last_tcn_ix = len(layer_max_dilation_factors) - 1
-    for ix, df_max_layer in enumerate(layer_max_dilation_factors):
-        return_sequences = (ix != last_tcn_ix) or (aggregation == "gap")
-        # fix dimensionality of time series embedding to layer filters
-        # (first iteration projects encoded frames down to a lower-dimensional space)
-        # kernel size 1 makes this causal
-        x = L.Conv1D(layer_filters, 1, padding="same")(x)
-        # apply TCN (1D causal convolutions with multiple time granularities)
-        x = DynamicTCN(
-            nb_filters=layer_filters,
-            dilations=[2 ** i for i in range(df_max_layer)],
-            kernel_size=kernel_size,
-            nb_stacks=nb_stacks,
-            padding=padding,
-            use_skip_connections=use_skip_connections,
-            dropout_rate=tcn_dropout_rate,
-            return_sequences=return_sequences,
-            activation=activation,
-            kernel_initializer=kernel_initializer,
-            use_batch_norm=use_batch_norm,
-            use_layer_norm=use_layer_norm,
-            use_weight_norm=use_weight_norm,
-        )(x)
-        # increase number of filters for next block
-        layer_filters *= 2
+    # TCN blocks
+    return_sequences = (aggregation == "gap")
+    # apply TCN (1D causal convolutions with multiple time granularities)
+    x = DynamicTCN(
+        nb_filters=layer_filters,
+        dilations=[2 ** i for i in range(max_dilation_factor)],
+        kernel_size=kernel_size,
+        nb_stacks=nb_stacks,
+        padding=padding,
+        use_skip_connections=use_skip_connections,
+        dropout_rate=tcn_dropout_rate,
+        return_sequences=return_sequences,
+        activation=activation,
+        kernel_initializer=kernel_initializer,
+        use_batch_norm=use_batch_norm,
+        use_layer_norm=use_layer_norm,
+        use_weight_norm=use_weight_norm,
+    )(x)
     # take average of class vector over whole sequence
-    # print(aggregation)
     if aggregation.lower() == "gap":
-        # print(x)
         x = L.GlobalAveragePooling1D()(x)
-    # dense classifier
+    # optional extra dense classifier
     for dn in dense_nodes:
         x = L.Dense(dn)(x)
         if use_batch_norm:

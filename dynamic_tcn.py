@@ -6,6 +6,7 @@ import numpy as np
 from tensorflow.keras import backend as K
 
 from dynamic_conv1d import DynamicConv1D
+from cbam import CBAM1D
 
 
 def is_power_of_two(num: int):
@@ -226,6 +227,8 @@ class DynamicTCN(L.Layer):
                  padding='causal',
                  use_dynamic_conv=True,
                  use_cbam=True,
+                 cbam_kernel_size=5,
+                 cbam_reduction_ratio=8,
                  use_skip_connections=True,
                  dropout_rate=0.0,
                  return_sequences=False,
@@ -247,6 +250,8 @@ class DynamicTCN(L.Layer):
         self.nb_filters = nb_filters
         self.use_dynamic_conv = use_dynamic_conv
         self.use_cbam = use_cbam
+        self.cbam_kernel_size = cbam_kernel_size
+        self.cbam_reduction_ratio = cbam_reduction_ratio
         self.K = K
         self.T_init = T_init
         self.activation = activation
@@ -312,6 +317,22 @@ class DynamicTCN(L.Layer):
 
         # this is done to force keras to add the layers in the list to self._layers
         for layer in self.residual_blocks:
+            self.__setattr__(layer.name, layer)
+
+        # optionally build CBAM blocks
+        self.cbam_blocks = []
+        if self.use_cbam:
+            for _ in range(len(self.residual_blocks)):
+                cbam = CBAM1D(
+                    kernel_size=self.cbam_kernel_size,
+                    reduction_ratio=self.cbam_reduction_ratio,
+                    name=self.name
+                )
+                cbam.build(self.build_output_shape)
+                self.cbam_blocks.append(cbam)
+
+        # this is done to force keras to add the layers in the list to self._layers
+        for layer in self.cbam_blocks:
             self.__setattr__(layer.name, layer)
 
         self.output_slice_index = None
