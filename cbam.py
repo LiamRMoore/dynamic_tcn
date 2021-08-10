@@ -113,7 +113,7 @@ class SpatialAttention1D(L.Layer):
             strides=1,
         )
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         # aggregate channel feature activations and concatenate to compact descriptor
         chn_avg = self.ch_avg_pool(inputs)
         chn_max = self.ch_max_pool(inputs)
@@ -149,10 +149,10 @@ class CBAM1D(L.Layer):
     def call(self, inputs, training=None):
         x = inputs
         # derive channel attention weights from inputs
-        ch_attn = self.chn_attn_block(x)
+        ch_attn = self.chn_attn_block(x, training=training)
         # reweight inputs by channel attention coefficients
         x_chn_reweighted = self.multiply_1([x, ch_attn])
         # calculate spatial attention weights from reweighted inputs
-        sp_attn = self.spt_attn_block(x_chn_reweighted)
+        sp_attn = self.spt_attn_block(x_chn_reweighted, training=training)
         # reweight the channel-reweighted inputs with the spatial attention coefficients
         return self.multiply_2([x_chn_reweighted, sp_attn])

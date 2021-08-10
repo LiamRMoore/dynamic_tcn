@@ -28,6 +28,7 @@ class ResidualBlock(L.Layer):
                  nb_filters: int,
                  kernel_size: int,
                  padding: str,
+                 use_skip_connections: bool = True,
                  use_dynamic_conv: bool = True,
                  K: int = 4,
                  T_init: float = 30.,
@@ -60,6 +61,7 @@ class ResidualBlock(L.Layer):
         self.kernel_size = kernel_size
         self.padding = padding
         self.activation = activation
+        self.use_skip_connections = use_skip_connections
         self.K = K
         self.T_init = T_init
         self.dropout_rate = dropout_rate
@@ -182,14 +184,19 @@ class ResidualBlock(L.Layer):
             training_flag = 'training' in dict(inspect.signature(layer.call).parameters)
             x = layer(x, training=training) if training_flag else layer(x)
             self.layers_outputs.append(x)
-        x2 = self.shape_match_conv(inputs)
-        self.layers_outputs.append(x2)
-        res_x = L.add([x2, x])
-        self.layers_outputs.append(res_x)
+    
+        if not self.use_skip_connections:
+            return x
 
+        reshaped_inputs = self.shape_match_conv(inputs)
+        res_x = L.add([reshaped_inputs, x])
         res_act_x = self.final_activation(res_x)
+
+        self.layers_outputs.append(reshaped_inputs)
+        self.layers_outputs.append(res_x)
         self.layers_outputs.append(res_act_x)
-        return [res_act_x, x]
+ 
+        return res_act_x
 
     def compute_output_shape(self, input_shape):
         return [self.res_output_shape, self.res_output_shape]
@@ -298,19 +305,23 @@ class DynamicTCN(L.Layer):
         for s in range(self.nb_stacks):
             for i, d in enumerate(self.dilations):
                 res_block_filters = self.nb_filters[i] if isinstance(self.nb_filters, list) else self.nb_filters
-                self.residual_blocks.append(ResidualBlock(dilation_rate=d,
-                                                          nb_filters=res_block_filters,
-                                                          kernel_size=self.kernel_size,
-                                                          padding=self.padding,
-                                                          K=self.K, 
-                                                          T_init=self.T_init,
-                                                          activation=self.activation,
-                                                          dropout_rate=self.dropout_rate,
-                                                          use_batch_norm=self.use_batch_norm,
-                                                          use_layer_norm=self.use_layer_norm,
-                                                          use_weight_norm=self.use_weight_norm,
-                                                          kernel_initializer=self.kernel_initializer,
-                                                          name='residual_block_{}'.format(len(self.residual_blocks))))
+                rb = ResidualBlock(
+                    dilation_rate=d,
+                    nb_filters=res_block_filters,
+                    kernel_size=self.kernel_size,
+                    padding=self.padding,
+                    use_skip_connections=self.use_skip_connections,
+                    K=self.K, 
+                    T_init=self.T_init,
+                    activation=self.activation,
+                    dropout_rate=self.dropout_rate,
+                    use_batch_norm=self.use_batch_norm,
+                    use_layer_norm=self.use_layer_norm,
+                    use_weight_norm=self.use_weight_norm,
+                    kernel_initializer=self.kernel_initializer,
+                    name='residual_block_{}'.format(len(self.residual_blocks))
+                )
+                self.residual_blocks.append(rb)
                 # build newest residual block
                 self.residual_blocks[-1].build(self.build_output_shape)
                 self.build_output_shape = self.residual_blocks[-1].res_output_shape
@@ -376,16 +387,14 @@ class DynamicTCN(L.Layer):
         x = inputs
         self.layers_outputs = [x]
         self.skip_connections = []
-        for layer in self.residual_blocks:
+        for block_ix, layer in enumerate(self.residual_blocks):
             try:
-                x, skip_out = layer(x, training=training)
+                x = layer(x, training=training)
             except TypeError:  # compatibility with tensorflow 1.x
-                x, skip_out = layer(K.cast(x, 'float32'), training=training)
-            self.skip_connections.append(skip_out)
+                x = layer(K.cast(x, 'float32'), training=training)
             self.layers_outputs.append(x)
-
-        if self.use_skip_connections:
-            x = L.add(self.skip_connections)
+            if self.use_cbam:
+                x = self.cbam_blocks[block_ix](x)
             self.layers_outputs.append(x)
 
         if not self.return_sequences:
