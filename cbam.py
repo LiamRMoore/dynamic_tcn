@@ -44,6 +44,7 @@ class Bottleneck(L.Layer):
         # print(K.int_shape(r))
         return r
 
+
 class ChannelAttention1D(L.Layer):
     def __init__(self, name: str, reduction_ratio: int = 8, *args, **kwargs):
         """
