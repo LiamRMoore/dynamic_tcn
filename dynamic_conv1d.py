@@ -5,6 +5,51 @@ import numpy as np
 from tensorflow.keras import backend as K
 
 
+# TODO adapt loss param callback to layer temp callback
+# loss class
+class SpecialLoss(tf.keras.losses.Loss):
+    def __init__(self, alpha_init: float = 0.0):
+        self.alpha_init = alpha_init
+        self.alpha = tf.Variable(alpha_init, dtype=tf.float32, trainable=False)
+        super(SpecialLoss, self).__init__(
+            name="special_loss", reduction=losses_utils.ReductionV2.AUTO
+        )
+
+    def call(self, y_true, y_pred):
+        return ((1 - self.alpha) * tf.keras.losses.mse(y_true, y_pred)) + (
+            self.alpha * tf.keras.losses.mae(y_true, y_pred)
+        )
+# define special coefficient as tensorflow variable so that it can be updated via callback
+class LinearUpdateAlphaCallback(tf.keras.callbacks.Callback):
+    def __init__(self, epoch_start: int, epoch_end: int = None, alpha_max: float = 0.5):
+        self.epoch_start = epoch_start
+        self.epoch_end = epoch_end
+        self.alpha_max = alpha_max
+        super(LinearUpdateAlphaCallback, self).__init__()
+
+    @property
+    def alpha_init(self):
+        return self.model.loss.alpha_init
+
+    @property
+    def alpha(self):
+        return self.model.loss.alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        self.model.loss.alpha = value
+
+    def on_epoch_end(self, epoch, logs=None):
+        ramp_factor = max((epoch - self.epoch_start + 1), 0) / (
+            self.epoch_end - self.epoch_start
+        )
+        alpha_range = self.alpha_max - self.alpha_init
+        self.alpha.assign(self.alpha_init + ramp_factor * alpha_range)
+        print(f"alpha updated to: {self.alpha}")
+        
+        
+
+# TODO ensure T shared between layers
 class Attention1D(L.Layer):
     
     def __init__(self, K, ratio=1/4., T_init=30., *args, **kwargs):
